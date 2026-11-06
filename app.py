@@ -1,19 +1,16 @@
 import os
 import socket
 import pathlib
+import sys
 import segno
 from flask import Flask, request, render_template_string, Response, stream_with_context
 
-# Configuration du stockage
 DOSSIER = "partage"
 os.makedirs(DOSSIER, exist_ok=True)
 
 app = Flask(__name__)
-
-# Désactive la limite de taille par défaut de Flask pour autoriser les fichiers volumineux
 app.config['MAX_CONTENT_LENGTH'] = None 
 
-# Interface HTML/CSS Modernisée et Responsivisée
 HTML = """
 <!doctype html>
 <html lang="fr">
@@ -43,19 +40,11 @@ HTML = """
             min-height: 100vh;
             padding: 40px 20px;
         }
-        .container {
-            width: 100%;
-            max-width: 550px;
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-        }
+        .container { width: 100%; max-width: 550px; display: flex; flex-direction: column; gap: 24px; }
         header { text-align: center; margin-bottom: 8px; }
         h1 { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.025em; display: flex; align-items: center; justify-content: center; gap: 8px; }
         h1 span { color: var(--accent); }
-        .subtitle { font-size: 0.95rem; color: var(--text-muted); margin-top: 6px; font-mono; }
-        
-        /* Zone de Drop */
+        .subtitle { font-size: 0.95rem; color: var(--text-muted); margin-top: 6px; font-family: monospace; }
         .drop {
             border: 2px dashed var(--border);
             background: var(--card-bg);
@@ -74,61 +63,12 @@ HTML = """
         .drop-icon { font-size: 2.5rem; margin-bottom: 12px; display: block; }
         .drop-title { font-size: 1.05rem; font-weight: 500; margin-bottom: 6px; }
         .drop-desc { font-size: 0.85rem; color: var(--text-muted); }
-        
-        /* Barre de Progression */
-        .progress-container {
-            width: 100%;
-            background: var(--card-bg);
-            border-radius: 9999px;
-            display: none;
-            overflow: hidden;
-            border: 1px solid var(--border);
-            padding: 3px;
-        }
-        .progress-bar {
-            width: 0%;
-            height: 16px;
-            background: linear-gradient(90deg, var(--accent), var(--success));
-            border-radius: 9999px;
-            transition: width 0.1s ease;
-            text-align: center;
-            font-size: 10px;
-            line-height: 16px;
-            font-weight: 700;
-            color: #000;
-        }
-        
-        /* Liste des Fichiers */
+        .progress-container { width: 100%; background: var(--card-bg); border-radius: 9999px; display: none; overflow: hidden; border: 1px solid var(--border); padding: 3px; }
+        .progress-bar { width: 0%; height: 16px; background: linear-gradient(90deg, var(--accent), var(--success)); border-radius: 9999px; transition: width 0.1s ease; text-align: center; font-size: 10px; line-height: 16px; font-weight: 700; color: #000; }
         .file-list { display: flex; flex-direction: column; gap: 10px; }
-        .file-item {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            padding: 14px 18px;
-            border-radius: 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 16px;
-            animation: fadeIn 0.3s ease;
-        }
-        .file-name {
-            font-size: 0.95rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            color: #e5e7eb;
-        }
-        .btn-dl {
-            background: var(--accent);
-            color: white;
-            text-decoration: none;
-            font-size: 0.85rem;
-            font-weight: 600;
-            padding: 8px 14px;
-            border-radius: 8px;
-            transition: background 0.2s;
-            flex-shrink: 0;
-        }
+        .file-item { background: var(--card-bg); border: 1px solid var(--border); padding: 14px 18px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; gap: 16px; animation: fadeIn 0.3s ease; }
+        .file-name { font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #e5e7eb; }
+        .btn-dl { background: var(--accent); color: white; text-decoration: none; font-size: 0.85rem; font-weight: 600; padding: 8px 14px; border-radius: 8px; transition: background 0.2s; flex-shrink: 0; }
         .btn-dl:hover { background: #357abd; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     </style>
@@ -137,19 +77,17 @@ HTML = """
 <div class="container">
     <header>
         <h1>⚡ ibzo <span>.</span></h1>
-        <div class="subtitle">Serveur local actif : http://{{ip}}:8000</div>
+        <div class="subtitle">Port {{port}} • IP : {{ip}}</div>
     </header>
 
     <div class="drop" id="drop" onclick="document.getElementById('f').click()">
         <span class="drop-icon">🚀</span>
         <div class="drop-title">Glissez vos fichiers ici</div>
-        <div class="drop-desc">Ou cliquez pour parcourir votre appareil<br><b>Zéro compression • Qualité 100% originale</b></div>
+        <div class="drop-desc">Zéro compression • Qualité originale</div>
         <input type="file" id="f" multiple style="display:none">
     </div>
 
-    <div class="progress-container" id="p_cont">
-        <div class="progress-bar" id="p_bar">0%</div>
-    </div>
+    <div class="progress-container" id="p_cont"><div class="progress-bar" id="p_bar">0%</div></div>
 
     <div class="file-list" id="list">
         {% for f in files %}
@@ -160,21 +98,16 @@ HTML = """
         {% endfor %}
     </div>
 </div>
-
 <script>
 const drop = document.getElementById('drop'), inp = document.getElementById('f'), pCont = document.getElementById('p_cont'), pBar = document.getElementById('p_bar');
-
 function upload(files){
     if(files.length === 0) return;
     pCont.style.display = 'block';
-    
     let file = files[0];
     let fd = new FormData();
     fd.append('file', file);
-    
     let xhr = new XMLHttpRequest();
     xhr.open('POST', '/upload', true);
-    
     xhr.upload.onprogress = e => {
         if (e.lengthComputable) {
             let percent = Math.round((e.loaded / e.total) * 100);
@@ -182,16 +115,13 @@ function upload(files){
             pBar.innerText = percent + '%';
         }
     };
-    
     xhr.onload = () => { location.reload(); };
     xhr.send(fd);
 }
-
 drop.ondragover = e => { e.preventDefault(); drop.style.borderColor = 'var(--accent)' };
 drop.ondragleave = () => { drop.style.borderColor = 'var(--border)' };
 drop.ondrop = e => { e.preventDefault(); drop.style.borderColor = 'var(--border)'; upload(e.dataTransfer.files) };
 inp.onchange = () => upload(inp.files);
-window.onpaste = e => { if(e.clipboardData.files.length) upload(e.clipboardData.files) }
 </script>
 </body>
 </html>
@@ -211,16 +141,15 @@ def get_ip():
 @app.route("/")
 def index():
     files = os.listdir(DOSSIER)
-    return render_template_string(HTML, files=files, ip=get_ip())
+    port_actuel = request.host.split(':')[-1] if ':' in request.host else '8000'
+    return render_template_string(HTML, files=files, ip=get_ip(), port=port_actuel)
 
 @app.route("/upload", methods=["POST"])
 def upload():
     if 'file' not in request.files: return "no file"
     file = request.files['file']
     if file.filename == '': return "no filename"
-    
     chemin_fichier = os.path.join(DOSSIER, file.filename)
-    
     with open(chemin_fichier, 'wb') as f:
         while chunk := file.stream.read(1024 * 1024): 
             f.write(chunk)
@@ -233,21 +162,37 @@ def dl(name):
         with open(chemin_complet, 'rb') as f:
             while chunk := f.read(1024 * 1024):
                 yield chunk
-                
     return Response(stream_with_context(generer_flux()), 
                     headers={"Content-Disposition": f"attachment; filename={name}"},
                     content_type="application/octet-stream")
 
+def afficher_banniere_premium(url):
+    # Rendu graphique ASCII textuel pour un affichage "Engineered Premium"
+    banniere = """
+    \033[94m██╗██████╗ ███████╗ ██████╗ 
+    ██║██╔══██╗╚══███╔╝██╔═══██╗
+    ██║██████╔╝  ███╔╝ ██║   ██║
+    ██║██╔══██╗ TRG █╝ ██║   ██║
+    ██║██████╔╝███████╗╚██████╔╝
+    ╚═╝╚═════╝ ╚══════╝ ╚═════╝\033[0m
+    """
+    print(banniere)
+    print("\033[90m" + "─"*50 + "\033[0m")
+    print(f" 🚀 \033[92mSYSTEME PREMIUM ACTIF\033[0m : {url}")
+    print("\033[90m" + "─"*50 + "\033[0m\n")
+
 if __name__ == "__main__":
-    ip = get_ip()
-    url_partage = f"http://{ip}:8000"
+    # Récupération dynamique du port (Idéal pour Google Cloud Run / Render)
+    port_env = int(os.environ.get("PORT", 8000))
+    ip_locale = get_ip()
+    url_partage = f"http://{ip_locale}:{port_env}"
     
-    print("\n" + "="*50)
-    print(f"🚀 SYSTÈME BOOSTÉ ACTIF : {url_partage}")
-    print("="*50 + "\n")
+    afficher_banniere_premium(url_partage)
     
-    qr = segno.make_qr(url_partage)
-    qr.terminal(compact=True)
-    print("\n")
-    
-    app.run(host="0.0.0.0", port=8000, threaded=True)
+    # Génération du QR Code propre uniquement si on tourne localement
+    if ip_locale != "127.0.0.1":
+        qr = segno.make_qr(url_partage)
+        qr.terminal(compact=True)
+        print("\n")
+        
+    app.run(host="0.0.0.0", port=port_env, threaded=True)
